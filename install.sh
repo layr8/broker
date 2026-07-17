@@ -1,64 +1,66 @@
 #!/bin/sh
-# layr8-broker installer (LAYR8-752a) — downloads the single-file binary for this
-# OS/arch from the latest GitHub Release and installs it. No Node/npm needed.
+# layr8-broker installer (LAYR8-752). Pulls the single-file binary for this
+# OS/arch from the public OCI registry (ghcr.io/layr8/broker) — anonymous, no
+# Node/npm, no auth. The binary self-updates after this.
 #
 #   curl -fsSL https://raw.githubusercontent.com/layr8/broker/main/install.sh | sh
 #
-# Env overrides: LAYR8_BIN_DIR (install dir, default ~/.local/bin),
-#                LAYR8_VERSION (a specific tag, e.g. v0.1.7; default: latest).
+# Env: LAYR8_BIN_DIR (install dir, default ~/.local/bin).
 set -eu
 
-REPO="layr8/broker"
+REGISTRY="ghcr.io"
+IMAGE="layr8/broker"
 BIN="layr8-broker"
+# oras' empty config ({} = 2 bytes); the manifest's OTHER sha256 is the binary.
+EMPTY_CONFIG="44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
 
 os="$(uname -s)"
 arch="$(uname -m)"
 case "$os" in
   Darwin) os="darwin" ;;
   Linux) os="linux" ;;
-  *) echo "unsupported OS: $os (binaries: darwin, linux). Use: npm i -g @layr8/mcp" >&2; exit 1 ;;
+  *) echo "unsupported OS: $os. Use: npm i -g @layr8/mcp" >&2; exit 1 ;;
 esac
 case "$arch" in
   arm64 | aarch64) arch="arm64" ;;
   x86_64 | amd64) arch="x64" ;;
   *) echo "unsupported arch: $arch. Use: npm i -g @layr8/mcp" >&2; exit 1 ;;
 esac
-asset="${BIN}-${os}-${arch}"
+tag="latest-${os}-${arch}"
 
-tag="${LAYR8_VERSION:-}"
-if [ -z "$tag" ]; then
-  tag="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-    | grep '"tag_name"' | head -1 | cut -d'"' -f4)"
-fi
-if [ -z "$tag" ]; then
-  echo "could not resolve the latest release tag from GitHub" >&2
-  exit 1
-fi
+api="https://${REGISTRY}/v2/${IMAGE}"
 
-base="https://github.com/${REPO}/releases/download/${tag}"
+# 1. anonymous pull token (public package)
+token="$(curl -fsSL "https://${REGISTRY}/token?scope=repository:${IMAGE}:pull" \
+  | tr ',' '\n' | grep '"token"' | head -1 | sed 's/.*"token":"//; s/".*//')"
+[ -n "$token" ] || { echo "couldn't get a registry token" >&2; exit 1; }
+auth="Authorization: Bearer ${token}"
+
+# 2. manifest for latest-<platform>
+manifest="$(curl -fsSL -H "$auth" \
+  -H "Accept: application/vnd.oci.image.manifest.v1+json" \
+  "${api}/manifests/${tag}")" || { echo "couldn't fetch the manifest for ${tag}" >&2; exit 1; }
+
+# 3. the binary layer digest = the sha256 that isn't the empty config
+digest="$(printf '%s' "$manifest" | grep -o '[0-9a-f]\{64\}' | grep -v "${EMPTY_CONFIG}" | head -1)"
+[ -n "$digest" ] || { echo "no binary layer in the manifest" >&2; exit 1; }
+
 dest="${LAYR8_BIN_DIR:-$HOME/.local/bin}"
 mkdir -p "$dest"
 tmp="$(mktemp)"
 
-echo "Installing ${asset} (${tag}) → ${dest}/${BIN}"
-curl -fsSL "${base}/${asset}" -o "$tmp"
+echo "Installing ${BIN} (${os}-${arch}) → ${dest}/${BIN}"
+curl -fsSL -H "$auth" "${api}/blobs/sha256:${digest}" -o "$tmp"
 
-# Verify the checksum when the release ships SHA256SUMS (all current releases do).
-if sums="$(curl -fsSL "${base}/SHA256SUMS" 2>/dev/null)"; then
-  want="$(echo "$sums" | grep " ${asset}\$" | awk '{print $1}')"
-  if [ -n "$want" ]; then
-    if command -v sha256sum >/dev/null 2>&1; then
-      got="$(sha256sum "$tmp" | awk '{print $1}')"
-    else
-      got="$(shasum -a 256 "$tmp" | awk '{print $1}')"
-    fi
-    if [ "$want" != "$got" ]; then
-      echo "checksum mismatch for ${asset} (want ${want}, got ${got}) — aborting" >&2
-      rm -f "$tmp"
-      exit 1
-    fi
-    echo "checksum ok"
-  fi
+# 4. verify the blob against its content digest (integrity for free)
+if command -v sha256sum >/dev/null 2>&1; then
+  got="$(sha256sum "$tmp" | awk '{print $1}')"
+else
+  got="$(shasum -a 256 "$tmp" | awk '{print $1}')"
+fi
+if [ "$digest" != "$got" ]; then
+  echo "checksum mismatch (want ${digest}, got ${got}) — aborting" >&2
+  rm -f "$tmp"; exit 1
 fi
 
 chmod +x "$tmp"

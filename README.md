@@ -20,9 +20,9 @@ optionally run it always-on with automatic updates:
 layr8-broker service install --env <label>
 ```
 
-## Releases
+## Distribution
 
-Each [release](https://github.com/layr8/broker/releases) attaches the
-per-platform binaries and a `SHA256SUMS`. `latest.json` tracks the current
-version (used for self-update). The installer verifies the SHA-256 of every
-download.
+Binaries are published to the public OCI registry **`ghcr.io/layr8/broker`**
+(per-platform `latest-<os>-<arch>` tags). The installer and the broker's
+self-update pull anonymously from there and verify each download against its
+content digest. This repo just hosts the installer script.
