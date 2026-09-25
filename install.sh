@@ -29,17 +29,35 @@ MANIFEST_ACCEPT="application/vnd.oci.image.manifest.v1+json"
 
 version="${LAYR8_VERSION:-}"
 version="${version#v}"
-channel="${LAYR8_CHANNEL:-}"
+channel="${LAYR8_UPDATE_CHANNEL:-}"
+
+# A running Layr8 session exports LAYR8_CHANNEL=1 to mean "the bridge is on"
+# (layr8/agents claude-code/bin/8claude), so a `curl … | sh` typed inside one
+# arrives with LAYR8_CHANNEL=1 — a value that is not a channel. This installer
+# used to exit 1 on it, which meant the documented one-liner failed for exactly
+# the people most likely to run it: someone already in a session. Say so and
+# carry on with the default. LAYR8_UPDATE_CHANNEL is the unambiguous spelling
+# and wins when both are set; layr8/agents launcher/install.sh does the same.
+if [ -z "$channel" ] && [ -n "${LAYR8_CHANNEL:-}" ]; then
+  case "${LAYR8_CHANNEL}" in
+    latest | next) channel="${LAYR8_CHANNEL}" ;;
+    *)
+      echo "NOTE: LAYR8_CHANNEL is '${LAYR8_CHANNEL}', which is not an update channel — a" >&2
+      echo "      running Layr8 session exports LAYR8_CHANNEL=1 to mean something else." >&2
+      echo "      Ignoring it. To choose a channel here, set LAYR8_UPDATE_CHANNEL=latest|next." >&2
+      ;;
+  esac
+fi
 
 if [ -n "$version" ] && [ -n "$channel" ]; then
-  echo "set LAYR8_VERSION or LAYR8_CHANNEL, not both" >&2; exit 1
+  echo "set LAYR8_VERSION or LAYR8_UPDATE_CHANNEL, not both" >&2; exit 1
 fi
 if [ -n "$version" ] && ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
   echo "LAYR8_VERSION is not a version: ${version}" >&2; exit 1
 fi
 case "$channel" in
   "" | latest | next) : ;;
-  *) echo "LAYR8_CHANNEL must be latest or next (got ${channel})" >&2; exit 1 ;;
+  *) echo "LAYR8_UPDATE_CHANNEL must be latest or next (got ${channel})" >&2; exit 1 ;;
 esac
 
 os="$(uname -s)"
