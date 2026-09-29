@@ -16,7 +16,7 @@ newest stable release:
 
 ```sh
 # exactly one version, a prerelease included
-curl -fsSL https://raw.githubusercontent.com/layr8/broker/main/install.sh | LAYR8_VERSION=0.4.0 sh
+curl -fsSL https://raw.githubusercontent.com/layr8/broker/main/install.sh | LAYR8_VERSION=0.6.0 sh
 # the next channel: the newest release, prereleases included, followed from then on
 curl -fsSL https://raw.githubusercontent.com/layr8/broker/main/install.sh | LAYR8_CHANNEL=next sh
 ```
@@ -27,7 +27,7 @@ Then connect an agent from the portal (**Agents → Connect an agent**), and
 optionally run it always-on with automatic updates:
 
 ```sh
-layr8-broker service install --env <label>
+layr8-broker service install --env <space>/<name>
 ```
 
 ## Distribution
